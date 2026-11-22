@@ -1,22 +1,37 @@
-/* AgroControl 6.0 RC: cache de arquivos estáticos. Nunca armazene APIs do Supabase. */
-const VERSION='agrocontrol-static-v6-rc1';
-const LOCAL=['./index.html','./agrocontrol.html','./cloud.js','./config.js','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
-self.addEventListener('install',event=>event.waitUntil(caches.open(VERSION).then(cache=>cache.addAll(LOCAL)).then(()=>self.skipWaiting())));
-self.addEventListener('activate',event=>event.waitUntil((async()=>{for(const key of await caches.keys())if(key.startsWith('agrocontrol-static-')&&key!==VERSION)await caches.delete(key);await self.clients.claim()})()));
+/* Cache exclusivamente estático; nunca guarda autenticação nem dados do Supabase. */
+const VERSION='agrocontrol-static-v6-3-2';
+const LOCAL=['./','./index.html','./agrocontrol.html','./cloud.js','./config.js','./mobile.css','./mobile.js','./vault.js','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
+self.addEventListener('install',event=>event.waitUntil(caches.open(VERSION).then(c=>c.addAll(LOCAL)).then(()=>self.skipWaiting())));
+self.addEventListener('activate',event=>event.waitUntil((async()=>{
+ for(const k of await caches.keys())if(k.startsWith('agrocontrol-static-')&&k!==VERSION)await caches.delete(k);
+ await self.clients.claim();
+})()));
 self.addEventListener('fetch',event=>{
- const request=event.request,url=new URL(request.url);
- if(request.method!=='GET')return;
- // Não guardar credenciais, REST, Auth ou respostas do banco.
- if(url.hostname.includes('supabase.co'))return;
- if(url.origin===self.location.origin){
+ const req=event.request;
+ if(req.method!=='GET')return;
+ const u=new URL(req.url);
+ if(u.hostname.includes('supabase.co'))return;
+ if(u.origin===self.location.origin){
    event.respondWith((async()=>{
-     try {const net=await fetch(request);if(net.ok){const c=await caches.open(VERSION);c.put(request,net.clone()).catch(()=>{})}return net}
-     catch {return await caches.match(request) || (request.mode==='navigate'?await caches.match('./agrocontrol.html'):Response.error())}
+     const cached=await caches.match(req);
+     try{
+       const result=await fetch(req);
+       // Só guardar páginas do próprio app e recursos estáticos. Não guardar respostas de API.
+       if(result.ok && (LOCAL.some(p=>new URL(p,self.registration.scope).pathname===u.pathname))){
+         const c=await caches.open(VERSION);c.put(req,result.clone()).catch(()=>{});
+       }
+       return result;
+     }catch{return cached||(req.mode==='navigate'?await caches.match('./index.html'):Response.error())}
    })());return;
  }
- // Dependências JS públicas do esm.sh: cache após primeiro acesso com internet.
- if(url.hostname==='esm.sh')event.respondWith((async()=>{
-   const cached=await caches.match(request);if(cached)return cached;
-   const net=await fetch(request);if(net.ok){const c=await caches.open(VERSION);c.put(request,net.clone()).catch(()=>{})}return net;
- })());
+ // Dependência pública do SDK, guardada para reabrir offline após o primeiro uso online.
+ if(u.hostname==='esm.sh'){
+   event.respondWith((async()=>{
+     const cache=await caches.open(VERSION);const saved=await cache.match(req);
+     if(saved)return saved;
+     const result=await fetch(req);
+     if(result.ok && result.type!=='opaque')cache.put(req,result.clone()).catch(()=>{});
+     return result;
+   })());
+ }
 });

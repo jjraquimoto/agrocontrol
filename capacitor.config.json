@@ -1,0 +1,8 @@
+{
+  "appId": "br.com.agrocontrol.app",
+  "appName": "AgroControl",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}
